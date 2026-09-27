@@ -1,8 +1,9 @@
+
 {
   "name": "donut-bridge-starter",
   "version": "1.0.0",
   "private": true,
-  "description": "Mineflayer starter for a Minecraft chat bridge",
+  "description": "DonutSMP Bedrock chat bridge",
   "main": "minecraftBot.js",
   "scripts": {
     "start": "node minecraftBot.js"
@@ -11,6 +12,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "mineflayer": "^4.31.0"
+    "bedrock-protocol": "^3.50.0"
   }
 }
