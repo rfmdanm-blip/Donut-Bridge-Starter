@@ -1,6 +1,10 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { 
+    Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, 
+    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType 
+} = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const games = require('./games'); // Import our games helper module
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
@@ -9,64 +13,51 @@ function getDatabase() {
     if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({}));
     return JSON.parse(fs.readFileSync(DB_FILE));
 }
-
 function saveDatabase(data) {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
-
 function getUser(userId, db) {
-    if (!db[userId]) {
-        db[userId] = { mcName: null, balance: 0, linkCode: null };
-    }
+    if (!db[userId]) db[userId] = { mcName: null, balance: 0 };
     return db[userId];
 }
 
-// --- BOT INITIALIZATION ---
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
+// --- REGISTER SLASH COMMANDS ---
 const commands = [
-    new SlashCommandBuilder()
-        .setName('balance')
-        .setDescription('Check your current casino balance'),
-    
-    new SlashCommandBuilder()
-        .setName('link')
-        .setDescription('Link your Minecraft account')
-        .addStringOption(opt => opt.setName('username').setDescription('Your DonutSMP Username').setRequired(true)),
-
-    new SlashCommandBuilder()
-        .setName('coinflip')
-        .setDescription('Bet on a 50/50 flip (47% House Advantage edge)')
-        .addIntegerOption(opt => opt.setName('amount').setDescription('Amount to bet').setRequired(true)),
-
-    new SlashCommandBuilder()
-        .setName('slots')
-        .setDescription('Spin the slot machine!')
-        .addIntegerOption(opt => opt.setName('amount').setDescription('Amount to bet').setRequired(true)),
-
-    new SlashCommandBuilder()
-        .setName('dice')
-        .setDescription('Roll a 6-sided die. Roll a 4, 5, or 6 to win!')
-        .addIntegerOption(opt => opt.setName('amount').setDescription('Amount to bet').setRequired(true)),
-
-    new SlashCommandBuilder()
-        .setName('jackpot')
-        .setDescription('High risk multiplier. 10% chance to win 5x your bet!')
-        .addIntegerOption(opt => opt.setName('amount').setDescription('Amount to bet').setRequired(true))
+    new SlashCommandBuilder().setName('balance').setDescription('Check your casino balance'),
+    new SlashCommandBuilder().setName('link').setDescription('Link your Minecraft account')
+        .addStringOption(opt => opt.setName('username').setDescription('Your Username').setRequired(true)),
+    new SlashCommandBuilder().setName('withdraw').setDescription('Withdraw chips')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
+    new SlashCommandBuilder().setName('coinflip').setDescription('50/50 flip')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Bet').setRequired(true)),
+    new SlashCommandBuilder().setName('roulette').setDescription('Color wheel')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Bet').setRequired(true))
+        .addStringOption(opt => opt.setName('color').setDescription('Red, Black, Green').setRequired(true)
+            .addChoices({name:'Red', value:'red'}, {name:'Black', value:'black'}, {name:'Green', value:'green'})),
+    new SlashCommandBuilder().setName('chicken').setDescription('Chicken Fryer')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Bet').setRequired(true))
+        .addIntegerOption(opt => opt.setName('bones').setDescription('Bones (1-24)').setRequired(true)),
+    new SlashCommandBuilder().setName('crash').setDescription('Rocket Crash')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Bet').setRequired(true)),
+    new SlashCommandBuilder().setName('mines').setDescription('Button Mines')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Bet').setRequired(true))
+        .addIntegerOption(opt => opt.setName('bombs').setDescription('Bombs (1-24)').setRequired(true)),
+    new SlashCommandBuilder().setName('tower').setDescription('Climb Tower')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Bet').setRequired(true)),
+    new SlashCommandBuilder().setName('blackjack').setDescription('Play Blackjack')
+        .addIntegerOption(opt => opt.setName('amount').setDescription('Bet').setRequired(true))
 ].map(cmd => cmd.toJSON());
 
 client.once('ready', async () => {
-    console.log(`[DISCORD] Casino online as \${client.user.tag}`);
     try {
         const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('[DISCORD] Registered all 4 casino games.');
-    } catch (err) {
-        console.error(err);
-    }
+        console.log('[DISCORD] Casino online with 7 modular games.');
+    } catch (err) { console.error(err); }
 });
 
-// --- COMMAND & GAME LOGIC ---
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
@@ -75,93 +66,112 @@ client.on('interactionCreate', async interaction => {
     const user = getUser(userId, db);
     const cmd = interaction.commandName;
 
-    // Utility 1: Balance
+    const baseEmbed = () => new EmbedBuilder().setTimestamp().setFooter({ text: 'DonutSMP Casino Framework' });
+    const errorEmbed = (txt) => baseEmbed().setTitle('❌ Error').setColor(0xe74c3c).setDescription(txt);
+    const successEmbed = (title, txt) => baseEmbed().setTitle(title).setColor(0x2ecc71).setDescription(txt);
+
+    // --- UTILITIES ---
     if (cmd === 'balance') {
-        const mcTag = user.mcName ? `(Linked to: \`${user.mcName}\`)` : '(Unlinked)';
-        return interaction.reply(`💳 **Wallet Balance:** user.balance.toLocaleString() chips {mcTag}`);
+        const mcTag = user.mcName ? `\`${user.mcName}\`` : '*Not Linked*';
+        const embed = baseEmbed().setTitle('💳 Account Balance').setColor(0x3498db)
+            .addFields({ name: 'Chips', value: `$${user.balance.toLocaleString()}`, inline: true }, { name: 'Minecraft', value: mcTag, inline: true });
+        return interaction.reply({ embeds: [embed] });
     }
-
-    // Utility 2: Link Identity Setup
     if (cmd === 'link') {
-        const mcUsername = interaction.options.getString('username');
-        user.mcName = mcUsername;
-        
-        // Generate a random code your mineflayer bot can check in-game if you choose to build verifications later
-        user.linkCode = Math.floor(100000 + Math.random() * 900000).toString(); 
+        user.mcName = interaction.options.getString('username');
         saveDatabase(db);
-
-        return interaction.reply(`🔗 Linked your Discord to Minecraft user **\${mcUsername}**!\nYour security check code is: \`${user.linkCode}\``);
+        return interaction.reply({ embeds: [successEmbed('🔗 Account Linked', `Paired Discord profile to Minecraft identity: **${user.mcName}**.`)] });
     }
 
-    // --- GRAB & VALIDATE WAGERS ---
     const amount = interaction.options.getInteger('amount');
-    if (amount) {
-        if (amount <= 0) return interaction.reply('❌ You must bet a positive number of chips!');
-        if (user.balance < amount) {
-            return interaction.reply(`❌ Insufficient funds! You need $${(amount - user.balance).toLocaleString()} more chips.`);
-        }
+    if (amount <= 0) return interaction.reply({ embeds: [errorEmbed('Bet amount must be positive!')] });
+    if (user.balance < amount) return interaction.reply({ embeds: [errorEmbed(`Insufficient funds! You need $${(amount - user.balance).toLocaleString()} more.`)] });
+
+    if (cmd === 'withdraw') {
+        if (!user.mcName) return interaction.reply({ embeds: [errorEmbed('Use `/link` first!')] });
+        user.balance -= amount;
+        saveDatabase(db);
+        process.emit('bedrockWithdraw', { mcName: user.mcName, amount: amount });
+        return interaction.reply({ embeds: [successEmbed('💸 Payout Processed', `Sending **$${amount.toLocaleString()}** to \`${user.mcName}\` in-game now.`)] });
     }
 
-    // Game 1: Coinflip (47% win chance - standard casino edge)
+    // --- MODULAR CASINO INTERACTIVE RUNTIME ---
+    const embed = baseEmbed();
+
     if (cmd === 'coinflip') {
-        const win = Math.random() < 0.47;
+        const win = games.playCoinflip();
         if (win) {
             user.balance += amount;
-            interaction.reply(`🪙 **Heads!** You won **+$${amount.toLocaleString()}**! Wallet: $${user.balance.toLocaleString()}`);
+            embed.setTitle('🪙 Coinflip: WIN!').setColor(0x2ecc71).setDescription(`**Heads!** You won **+$${amount.toLocaleString()}**!\nWallet: $${user.balance.toLocaleString()}`);
         } else {
             user.balance -= amount;
-            interaction.reply(`🪙 **Tails!** You lost **-$${amount.toLocaleString()}**. Wallet: $${user.balance.toLocaleString()}`);
+            embed.setTitle('🪙 Coinflip: LOSS').setColor(0xe74c3c).setDescription(`**Tails!** You lost **-$${amount.toLocaleString()}**.\nWallet: $${user.balance.toLocaleString()}`);
         }
     }
 
-    // Game 2: Slots (Three matching icons multiplier payouts)
-    if (cmd === 'slots') {
-        const icons = ['🍒', '🍋', '💎', '🔔', '🍀'];
-        const r1 = icons[Math.floor(Math.random() * icons.length)];
-        const r2 = icons[Math.floor(Math.random() * icons.length)];
-        const r3 = icons[Math.floor(Math.random() * icons.length)];
-        const grid = `[ ${r1} | ${r2} | ${r3} ]`;
-
-        if (r1 === r2 && r2 === r3) { // 3 of a kind (Big win)
-            const winnings = amount * 3;
-            user.balance += winnings;
-            interaction.reply(`🎰 ${grid}\n**JACKPOT!** Triple match! You won **+$${winnings.toLocaleString()}**!`);
-        } else if (r1 === r2 || r2 === r3 || r1 === r3) { // 2 of a kind (Small win)
-            const winnings = Math.floor(amount * 0.5);
-            user.balance += winnings;
-            interaction.reply(`🎰 ${grid}\n**Double!** You won **+$${winnings.toLocaleString()}**!`);
-        } else { // No match
-            user.balance -= amount;
-            interaction.reply(`🎰 ${grid}\n**No match.** You lost **-$${amount.toLocaleString()}**.`);
-        }
-    }
-
-    // Game 3: Dice Roll
-    if (cmd === 'dice') {
-        const roll = Math.floor(Math.random() * 6) + 1;
-        if (roll >= 4) { // 4, 5, 6 wins (50% odds raw)
-            user.balance += amount;
-            interaction.reply(`🎲 You rolled a **${roll}**! You won **+$${amount.toLocaleString()}**!`);
+    if (cmd === 'roulette') {
+        const choice = interaction.options.getString('color');
+        const res = games.playRoulette(choice);
+        if (res.win) {
+            const mult = res.landed === 'green' ? 14 : 2;
+            const profit = amount * (mult - 1);
+            user.balance += profit;
+            embed.setTitle('🎡 Roulette: WIN!').setColor(0x2ecc71).setDescription(`Landed on **${res.landed.toUpperCase()}**!\nProfit: **+$${profit.toLocaleString()}**\nWallet: $${user.balance.toLocaleString()}`);
         } else {
             user.balance -= amount;
-            interaction.reply(`🎲 You rolled a **${roll}**! You lost **-$${amount.toLocaleString()}**.`);
+            embed.setTitle('🎡 Roulette: LOSS').setColor(0xe74c3c).setDescription(`Landed on **${res.landed.toUpperCase()}**.\nLoss: **-$${amount.toLocaleString()}**\nWallet: $${user.balance.toLocaleString()}`);
         }
     }
 
-    // Game 4: High Roller Jackpot (10% win rate, massive 5x payout)
-    if (cmd === 'jackpot') {
-        const win = Math.random() < 0.10; // 10% chance
+    if (cmd === 'chicken') {
+        const bones = interaction.options.getInteger('bones');
+        if (bones < 1 || bones > 24) return interaction.reply({ embeds: [errorEmbed('Bones must be 1-24.')] });
+        const win = games.playChicken(bones);
         if (win) {
-            const winnings = amount * 5;
-            user.balance += winnings;
-            interaction.reply(`🚀 **MEGA WIN!** You hit the 10% chance and won **+$${winnings.toLocaleString()}** (5x)!`);
+            const profit = Math.floor(amount * (bones * 0.15));
+            user.balance += profit;
+            embed.setTitle('🍗 Chicken: SUCCESS!').setColor(0x2ecc71).setDescription(`Fried clean!\nProfit: **+$${profit.toLocaleString()}**\nWallet: $${user.balance.toLocaleString()}`);
         } else {
             user.balance -= amount;
-            interaction.reply(`💥 **Boom.** The jackpot missed. You lost **-$${amount.toLocaleString()}**.`);
+            embed.setTitle('🍗 Chicken: BURNT').setColor(0xe74c3c).setDescription(`Hit a bad bone!\nLoss: **-$${amount.toLocaleString()}**\nWallet: $${user.balance.toLocaleString()}`);
         }
     }
 
-    saveDatabase(db);
-});
+    if (cmd === 'crash') {
+        const res = games.playCrash();
+        if (res.win) {
+            const profit = Math.floor(amount * (res.cashout - 1));
+            user.balance += profit;
+            embed.setTitle('🚀 Crash: SAFE!').setColor(0x2ecc71).setDescription(`Rocket hit **${res.crash}x**. Cashed out at **${res.cashout}x**.\nProfit: **+$${profit.toLocaleString()}**\nWallet: $${user.balance.toLocaleString()}`);
+        } else {
+            user.balance -= amount;
+            embed.setTitle('🚀 Crash: BOOM!').setColor(0xe74c3c).setDescription(`Rocket **CRASHED** at **${res.crash}x** before target.\nLoss: **-$${amount.toLocaleString()}**\nWallet: $${user.balance.toLocaleString()}`);
+        }
+    }
 
-client.login(process.env.DISCORD_TOKEN);
+    if (cmd === 'mines') {
+        const bombs = interaction.options.getInteger('bombs');
+        if (bombs < 1 || bombs > 24) return interaction.reply({ embeds: [errorEmbed('Choose 1-24 bombs.')] });
+        user.balance -= amount; saveDatabase(db);
+        const board = games.generateMinesBoard(bombs);
+        let dynamicProfit = 0, diamondCount = 0, flipped = [];
+
+        const buildRows = (done = false) => {
+            const rows = [];
+            for (let r = 0; r < 5; r++) {
+                const row = new ActionRowBuilder();
+                for (let c = 0; c < 5; c++) {
+                    const idx = r * 5 + c;
+                    const btn = new ButtonBuilder().setCustomId(`mine_${idx}`).setLabel('❓').setStyle(ButtonStyle.Secondary);
+                    if (flipped.includes(idx) || done) {
+                        btn.setLabel(board[idx]).setDisabled(true);
+                        btn.setStyle(board[idx] === '💣' ? ButtonStyle.Danger : ButtonStyle.Success);
+                    }
+                    row.addComponents(btn);
+                }
+                rows.push(row);
+            }
+            rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mine_cash').setLabel(`Cash Out (+$${dynamicProfit.toLocaleString()})`).setStyle(ButtonStyle.Primary).setDisabled(done)));
+            return rows;
+        };
+
