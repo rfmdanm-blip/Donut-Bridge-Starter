@@ -26,10 +26,10 @@ function startBot() {
 
     bot = mineflayer.createBot({
         host: process.env.SERVER_IP || 'play.donutsmp.net',
-        port: 25565, // Standard Java Port
+        port: 25565, // Native Java Port
         username: process.env.MC_USERNAME,
-        auth: 'microsoft', // Change to 'offline' if testing on local/cracked setups
-        version: '1.20.4' // Forces a stable protocol standard matching the network core
+        auth: 'microsoft', // Standard Microsoft/Xbox Live profile authentication
+        version: '1.20.4' // Stable target protocol version for network cores
     });
 
     bot.on('login', () => {
@@ -43,15 +43,15 @@ function startBot() {
 
         console.log(`[MINECRAFT CHAT LOG] ${cleanChat}`);
 
-        // Precise DonutSMP Java format matcher: Looks for username + "paid you \$"
+        // Matches standard payment layout: "Username paid you \$50,000"
         const payRegex = /([a-zA-Z0-9_]{3,16})\s+paid\s+you\s+\$([0-9,.]+[kmbt]?)/i;
         const match = cleanChat.match(payRegex);
 
         if (match) {
-            const mcUsername = match[1];
-            let amountStr = match[2].toLowerCase().replace(/,/g, '');
+            const mcUsername = match;
+            let amountStr = match.toLowerCase().replace(/,/g, '');
             
-            // Handle number multipliers
+            // Parse abbreviated inputs (k, m, b)
             let multiplier = 1;
             if (amountStr.endsWith('k')) { multiplier = 1000; amountStr = amountStr.slice(0, -1); }
             else if (amountStr.endsWith('m')) { multiplier = 1000000; amountStr = amountStr.slice(0, -1); }
@@ -59,7 +59,7 @@ function startBot() {
             
             const depositAmount = Math.floor(parseFloat(amountStr) * multiplier);
 
-            // Security check: Make sure it isn't reading its own confirmation printout
+            // Ignore system self-echoes
             if (mcUsername.toLowerCase() === bot.username.toLowerCase()) return;
 
             console.log(`[💰 DEPOSIT DETECTED] Account: ${mcUsername} | Chips Credited: $${depositAmount.toLocaleString()}`);
@@ -67,7 +67,7 @@ function startBot() {
             const db = getDatabase();
             let foundDiscordUser = null;
 
-            // Search the ledger map
+            // Search the ledger mappings
             for (const discordId in db) {
                 if (db[discordId].mcName && db[discordId].mcName.toLowerCase() === mcUsername.toLowerCase()) {
                     foundDiscordUser = discordId;
