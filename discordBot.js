@@ -174,4 +174,182 @@ client.on('interactionCreate', async interaction => {
             rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('mine_cash').setLabel(`Cash Out (+$${dynamicProfit.toLocaleString()})`).setStyle(ButtonStyle.Primary).setDisabled(done)));
             return rows;
         };
+        const msg = await interaction.reply({ 
+            embeds: [embed.setTitle('⛏️ Mines Active').setColor(0x3498db).setDescription(`Avoid the **${bombs}** hidden bombs.`)], 
+            components: buildRows(), 
+            fetchReply: true 
+        });
+        
+        const col = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+        
+        col.on('collect', async b => {
+            if (b.user.id !== userId) return b.reply({ content: 'Not your game!', ephemeral: true });
+            
+            if (b.customId === 'mine_cash') {
+                const fDB = getDatabase(); 
+                fDB[userId].balance += (amount + dynamicProfit); 
+                saveDatabase(fDB); 
+                col.stop();
+                return b.update({ 
+                    embeds: [successEmbed('⛏️ Mines: Clean Clear', `Profit: **+$${dynamicProfit.toLocaleString()}**\nWallet: $${fDB[userId].balance.toLocaleString()}`)], 
+                    components: [] 
+                });
+            }
+            
+            const idx = parseInt(b.customId.split('_')[1]); 
+            flipped.push(idx);
+            
+            if (board[idx] === '💣') {
+                col.stop(); 
+                return b.update({ 
+                    embeds: [errorEmbed(`Struck a bomb at grid #${idx}!\nLoss: -$${amount.toLocaleString()}`)], 
+                    components: buildRows(true) 
+                });
+            } else {
+                diamondCount++; 
+                dynamicProfit = Math.floor(amount * (diamondCount * (bombs * 0.12)));
+                await b.update({ 
+                    embeds: [embed.setDescription(`Uncovered: ${diamondCount} 💎\nPending Cashout Value: $${dynamicProfit.toLocaleString()}`)], 
+                    components: buildRows() 
+                });
+            }
+        });
+        return;
+    }
 
+    if (cmd === 'tower') {
+        user.balance -= amount; 
+        saveDatabase(db);
+        let currentFloor = 0, currentWinnings = amount;
+        
+        const buildTower = (done = false) => {
+            const rows = [];
+            for (let f = 3; f >= 0; f--) {
+                const row = new ActionRowBuilder();
+                for (let t = 0; t < 3; t++) {
+                    const btn = new ButtonBuilder().setCustomId(`tower_${f}_${t}`).setLabel('⬜').setStyle(ButtonStyle.Secondary);
+                    if (f !== currentFloor || done) btn.setDisabled(true);
+                    row.addComponents(btn);
+                }
+                rows.push(row);
+            }
+            rows.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('tower_cash').setLabel(`Cash Out ($${currentWinnings.toLocaleString()})`).setStyle(ButtonStyle.Primary).setDisabled(currentFloor === 0 || done)
+            ));
+            return rows;
+        };
+
+        const msg = await interaction.reply({ 
+            embeds: [embed.setTitle('🏰 The Tower').setColor(0x9b59b6).setDescription(`Climb levels. Next value: $${Math.floor(currentWinnings * 1.45).toLocaleString()}`)], 
+            components: buildTower(), 
+            fetchReply: true 
+        });
+        
+        const col = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+        
+        col.on('collect', async b => {
+            if (b.user.id !== userId) return b.reply({ content: 'Not yours!', ephemeral: true });
+            
+            if (b.customId === 'tower_cash') {
+                const fDB = getDatabase(); 
+                fDB[userId].balance += currentWinnings; 
+                saveDatabase(fDB); 
+                col.stop();
+                return b.update({ 
+                    embeds: [successEmbed('🏰 Tower: Cashed', `Returned: **+$${currentWinnings.toLocaleString()}**\nWallet: $${fDB[userId].balance.toLocaleString()}`)], 
+                    components: [] 
+                });
+            }
+            
+            const [,, fStr, tStr] = b.customId.split('_');
+            if (parseInt(fStr) !== currentFloor) return b.reply({ content: 'Active row only!', ephemeral: true });
+            
+            if (Math.floor(Math.random() * 3) === parseInt(tStr)) {
+                col.stop(); 
+                return b.update({ 
+                    embeds: [errorEmbed(`Fell on Floor ${currentFloor + 1}!\nLoss: -$${amount.toLocaleString()}`)], 
+                    components: buildTower(true) 
+                });
+            } else {
+                currentFloor++; 
+                currentWinnings = Math.floor(currentWinnings * 1.45);
+                if (currentFloor === 4) {
+                    const fDB = getDatabase(); 
+                    fDB[userId].balance += currentWinnings; 
+                    saveDatabase(fDB); 
+                    col.stop();
+                    return b.update({ 
+                        embeds: [successEmbed('👑 Tower Conquered!', `Jackpot Summit Cleared!\nPayout: **+$${currentWinnings.toLocaleString()}**`)], 
+                        components: [] 
+                    });
+                }
+                await b.update({ 
+                    embeds: [embed.setDescription(`Floor ${currentFloor} clear!\nPending Value: $${currentWinnings.toLocaleString()}`)], 
+                    components: buildTower() 
+                });
+            }
+        });
+        return;
+    }
+
+    if (cmd === 'blackjack') {
+        user.balance -= amount; 
+        saveDatabase(db);
+        let player = [games.drawCard(), games.drawCard()], dealer = [games.drawCard(), games.drawCard()];
+        const getSum = (h) => h.reduce((a, b) => a + b, 0);
+        
+        const render = (hide = true) => embed.setTitle('🃏 Blackjack').setColor(0x34495e).setFields(
+            { name: `Your Hand (${getSum(player)})`, value: player.join(', '), inline: true }, 
+            { name: `Dealer (${hide ? '?' : getSum(dealer)})`, value: hide ? `${dealer[0]}, ❓` : dealer.join(', '), inline: true }
+        );
+        
+        const btns = () => [new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('bj_h').setLabel('Hit').setStyle(ButtonStyle.Success), 
+            new ButtonBuilder().setCustomId('bj_s').setLabel('Stand').setStyle(ButtonStyle.Danger)
+        )];
+
+        const msg = await interaction.reply({ embeds: [render(true)], components: btns(), fetchReply: true });
+        const col = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+        
+        col.on('collect', async b => {
+            if (b.user.id !== userId) return b.reply({ content: 'Not yours!', ephemeral: true });
+            
+            if (b.customId === 'bj_h') {
+                player.push(games.drawCard());
+                if (getSum(player) > 21) { 
+                    col.stop(); 
+                    return b.update({ 
+                        embeds: [render(false).setColor(0xe74c3c).setDescription(`Bust over 21!\nLoss: -$${amount.toLocaleString()}`)], 
+                        components: [] 
+                    }); 
+                }
+                return b.update({ embeds: [render(true)] });
+            }
+            
+            if (b.customId === 'bj_s') {
+                col.stop(); 
+                while (getSum(dealer) < 17) dealer.push(games.drawCard());
+                const p = getSum(player), d = getSum(dealer), fDB = getDatabase();
+                const out = render(false);
+                
+                if (d > 21 || p > d) { 
+                    fDB[userId].balance += amount * 2; 
+                    out.setColor(0x2ecc71).setDescription(`**You Win!** Winnings: +$${amount.toLocaleString()}`); 
+                } else if (d > p) { 
+                    out.setColor(0xe74c3c).setDescription(`**House Wins.** Loss: -$${amount.toLocaleString()}`); 
+                } else { 
+                    fDB[userId].balance += amount; 
+                    out.setColor(0xf1c40f).setDescription('Push. Tie round.'); 
+                }
+                saveDatabase(fDB); 
+                return b.update({ embeds: [out], components: [] });
+            }
+        });
+        return;
+    }
+
+    saveDatabase(db);
+    return interaction.reply({ embeds: [embed] });
+});
+
+client.login(process.env.DISCORD_TOKEN);
