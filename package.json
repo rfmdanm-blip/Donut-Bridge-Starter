@@ -1,17 +1,18 @@
-
 {
   "name": "donut-bridge-starter",
   "version": "1.0.0",
   "private": true,
   "description": "DonutSMP Bedrock chat bridge",
-  "main": "minecraftBot.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node minecraftBot.js"
+    "start": "node index.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "bedrock-protocol": "^3.50.0"
+    "bedrock-protocol": "^3.50.0",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
   }
 }
